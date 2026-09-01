@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 1 — Adapters and Method Sets</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<link rel="stylesheet" href="../assets/quiz.css">
+</head>
+<body>
+<main class="sheet">
+
+<p class="eyebrow">Lesson 01 · Chapter 7 · Types, Methods, Interfaces</p>
+<h1>Adapters and Method&nbsp;Sets</h1>
+<p class="standfirst">Your <code>League</code> has a <code>Ranking</code> method and <code>Ranker</code>
+wants a <code>Ranking</code> method, and yet the compiler says no. Here is the rule it is
+enforcing, and the two shapes Go gives you for getting around it without touching
+<code>League</code>.</p>
+
+<h2><span class="num">01</span>The failure</h2>
+
+<p>This is the code from <code>ch7/main.go</code>, reduced to the part that matters:</p>
+
+<pre class="bad"><code>type TeamName string
+
+func (l League) Ranking() []TeamName { … }
+
+type Ranker interface {
+	Ranking() []string
+}
+
+RankPrinter(league, os.Stdout) // League does not implement Ranker</code></pre>
+
+<p>A type satisfies an interface when its <strong>method set</strong> contains a method
+with the <em>identical</em> name and signature. Not a compatible one — an identical one.
+Go has no covariance: <code>[]TeamName</code> in the return position is a different
+signature from <code>[]string</code>, so <code>League.Ranking</code> is simply a different
+method than the one <code>Ranker</code> asked for.
+(<a href="https://go.dev/ref/spec#Method_sets">Spec: Method sets</a>)</p>
+
+<div class="rule-box">
+  <span class="label">The rule</span>
+  <p>Implementation in Go is structural but <strong>exact</strong>. Same name, same
+  parameters, same results — or the type does not implement the interface. There is no
+  partial credit and no adaptation step built into the language.</p>
+</div>
+
+<h2><span class="num">02</span>The shortcut that isn't</h2>
+
+<p>The obvious repair is to hand back the same slice under a new name. It does not
+compile:</p>
+
+<pre class="bad"><code>func (l League) Ranking() []string {
+	names := …            // []TeamName
+	return []string(names) // ✗
+}</code></pre>
+<p class="caption">cannot convert names (variable of type []TeamName) to type []string</p>
+
+<p><code>TeamName</code> and <code>string</code> convert freely — they share an underlying
+type. <code>[]TeamName</code> and <code>[]string</code> do not, because a slice conversion
+requires <em>identical</em> element types, not merely convertible ones. The two slices have
+different element types, therefore different memory interpretations, therefore no
+conversion. (<a href="https://go.dev/ref/spec#Conversions">Spec: Conversions</a>)</p>
+
+<p>So the copy is unavoidable. That copy loop is the whole substance of your adapter — the
+question is only where to put it.</p>
+
+<h2><span class="num">03</span>Shape one: the wrapper type</h2>
+
+<p>An <strong>adapter</strong> is a new type that wraps an existing one and presents the
+method set some interface demands. Embed <code>League</code> so the wrapper keeps everything
+<code>League</code> already does, then declare the one method whose shape you need to
+change:</p>
+
+<pre class="good"><code>type LeagueRanker struct {
+	League
+}
+
+func (l LeagueRanker) Ranking() []string {
+	src := l.League.Ranking() // the original, called explicitly
+	out := make([]string, 0, len(src))
+	for _, n := range src {
+		out = append(out, string(n))
+	}
+	return out
+}
+
+RankPrinter(LeagueRanker{league}, os.Stdout) // ✓</code></pre>
+
+<p>Two things are happening. Embedding <strong>promotes</strong> <code>League</code>'s fields
+and methods onto <code>LeagueRanker</code>, so <code>MatchResult</code> and <code>Wins</code>
+still work through the wrapper. And the method you declare directly on
+<code>LeagueRanker</code> is at depth zero, so it <strong>shadows</strong> the promoted
+<code>Ranking</code> — which is why you must write <code>l.League.Ranking()</code> in full to
+reach the original. (<a href="https://go.dev/doc/effective_go#embedding">Effective Go: Embedding</a>)</p>
+
+<div class="rule-box">
+  <span class="label">Trap</span>
+  <p>Do not reach for <code>type LeagueRanker League</code> instead. A defined type declared
+  from another defined type starts with an <em>empty</em> method set — it copies the
+  structure, not the behaviour:</p>
+  <pre style="margin:0.7rem 0 0"><code>a.Ranking undefined (type LeagueAlias has no field or method Ranking)</code></pre>
+</div>
+
+<h2><span class="num">04</span>Shape two: the function adapter</h2>
+
+<p>When the interface has exactly one method, you can skip the struct entirely. Give a
+<em>function type</em> a method, and any function of that shape becomes an implementation.
+This is the shape you reached for — the piece that was missing is the method:</p>
+
+<pre class="good"><code>type RankerAdapter func() []string
+
+// Without this line, RankerAdapter satisfies nothing. A func type
+// has an empty method set until you give it one.
+func (f RankerAdapter) Ranking() []string { return f() }
+
+func (l League) RankingStrings() []string {
+	out := make([]string, 0, len(l.Wins))
+	for _, r := range l.Ranking() {
+		out = append(out, string(r))
+	}
+	return out
+}
+
+err := RankPrinter(RankerAdapter(league.RankingStrings), os.Stdout)</code></pre>
+
+<p>The last line is doing something worth slowing down for.
+<code>league.RankingStrings</code> — written without parentheses — is a <strong>method
+value</strong>: a <code>func() []string</code> with the receiver <code>league</code> already
+bound into it. Its type matches <code>RankerAdapter</code>'s underlying type, so it converts,
+and the converted value carries <code>Ranking</code> in its method set.
+(<a href="https://go.dev/ref/spec#Method_values">Spec: Method values</a>)</p>
+
+<p>This is not a trick — it is how the standard library adapts plain functions into
+<code>http.Handler</code>, via
+<a href="https://pkg.go.dev/net/http#HandlerFunc"><code>http.HandlerFunc</code></a>.</p>
+
+<p>Prefer the wrapper when the adapted thing has state and other behaviour worth carrying
+along. Prefer the func adapter when the interface has one method and you just need to hand
+over one piece of behaviour.</p>
+
+<h2><span class="num">05</span>The two near-misses</h2>
+
+<p>Both drafts were one step away, and both stalled in the same place: a method got attached
+to the wrong type, or to no type at all.</p>
+
+<table>
+  <tr><th>What was written</th><th>Why it satisfies nothing</th></tr>
+  <tr>
+    <td><code>type RankerAdapter string</code></td>
+    <td>Adapters wrap the thing that <em>has</em> the behaviour. It lives on
+    <code>League</code>, so a bare <code>string</code> has nothing to delegate to.</td>
+  </tr>
+  <tr>
+    <td><code>func (t Team) Ranker() string</code></td>
+    <td>Named after the interface instead of after the method it must provide, on the wrong
+    receiver, with the wrong result type.</td>
+  </tr>
+  <tr>
+    <td><code>type RankerAdapter func() []string</code><br>with no method on it</td>
+    <td>Right type, no method set. A defined func type implements nothing until you declare
+    <code>Ranking</code> on it.</td>
+  </tr>
+  <tr>
+    <td><code>func (l League) RankerAdapter() []string</code></td>
+    <td>The conversion body is correct — but named for the adapter type rather than for what
+    it does, and hung on <code>League</code>, where <code>Ranker</code> never looks for it.</td>
+  </tr>
+</table>
+
+<h2><span class="num">06</span>Check yourself</h2>
+
+<p>Answer before scrolling back. Getting one wrong here is more useful than getting it
+right by re-reading.</p>
+
+<div class="quiz" data-answer="0">
+  <p class="quiz-q">Why does <code>League</code> fail to satisfy <code>Ranker</code>?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">The method signatures must match exactly</button>
+    <button class="quiz-opt">The method uses a value receiver, not pointer</button>
+    <button class="quiz-opt">The TeamName type is defined in another file</button>
+    <button class="quiz-opt">The type must declare that it implements it</button>
+  </div>
+  <p class="quiz-feedback" hidden>Method sets are matched by exact name and signature.
+  <code>[]TeamName</code> and <code>[]string</code> are different result types, so these are
+  two unrelated methods that happen to share a name.</p>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="quiz-q">What does <code>return []string(names)</code> do, where <code>names</code>
+  is a <code>[]TeamName</code>?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">Compiles, since the element types convert</button>
+    <button class="quiz-opt">Fails, since the element types are different</button>
+    <button class="quiz-opt">Compiles, and copies the backing array once</button>
+    <button class="quiz-opt">Fails, since only pointer slices can convert</button>
+  </div>
+  <p class="quiz-feedback" hidden>Slice conversion needs <em>identical</em> element types.
+  <code>TeamName</code> converts to <code>string</code>; <code>[]TeamName</code> does not
+  convert to <code>[]string</code>. You must copy element by element.</p>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="quiz-q">After <code>type LeagueRanker League</code>, what does the new type have?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">All of League's fields and all its methods</button>
+    <button class="quiz-opt">All of League's fields but none of its methods</button>
+    <button class="quiz-opt">None of League's fields and none of methods</button>
+    <button class="quiz-opt">Only those methods declared with value receivers</button>
+  </div>
+  <p class="quiz-feedback" hidden>A defined type gets its underlying type's structure and an
+  empty method set. That is why the adapter embeds <code>League</code> in a struct instead —
+  embedding promotes the methods.</p>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="quiz-q">In the <code>http.HandlerFunc</code> pattern, what lets a plain function
+  satisfy an interface?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">A named func type that carries a method</button>
+    <button class="quiz-opt">A struct type that embeds a func value</button>
+    <button class="quiz-opt">An anonymous func with a method literal</button>
+    <button class="quiz-opt">A pointer receiver placed on the func type</button>
+  </div>
+  <p class="quiz-feedback" hidden>Methods may be declared on any defined type in the same
+  package, including a func type. The method set of <code>RankerFunc</code> then contains
+  <code>Ranking</code>, so any function of that shape satisfies <code>Ranker</code>.</p>
+</div>
+
+<h2><span class="num">07</span>Do this next</h2>
+
+<p>You have the func adapter working. Now write the <em>other</em> one — the
+<code>LeagueRanker</code> struct from section 3 — in the same file, and call
+<code>RankPrinter</code> once with each. Holding both shapes in the same program is what makes
+the choice between them concrete rather than theoretical.</p>
+
+<p>Then push on it: make the adapter print each team's win count beside its name. Notice that
+neither <code>League</code> nor <code>Ranker</code> has to change to allow it. That is the real
+point of the pattern — the adapter is where the mismatch between two designs is allowed to
+live, so neither design has to bend.</p>
+
+<div class="footer">
+  <p><strong>Read this next — the primary source:</strong>
+  <a href="https://go.dev/ref/spec#Method_sets">The Go Programming Language Specification,
+  “Method sets”</a>, then the short
+  <a href="https://go.dev/ref/spec#Conversions">“Conversions”</a> section. Fifteen minutes,
+  and it is the actual law the compiler applies — not a paraphrase of it.</p>
+
+  <p><strong>Related material in this workspace:</strong></p>
+  <ul>
+    <li><a href="../reference/method-sets-and-adapters.html">Reference: Method Sets &amp;
+    Adapters</a> — the compressed version, for later.</li>
+    <li><a href="../learning-records/0001-adapters-over-widening-types.md">Learning record 0001</a>
+    — why we adapted instead of deleting <code>TeamName</code>.</li>
+  </ul>
+
+  <p class="ask"><strong>Stuck on any of this?</strong> Ask me. I am your teacher for this
+  workspace — if the shadowing rule or the conversion rule still feels arbitrary, say so and
+  we will take it apart further.</p>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

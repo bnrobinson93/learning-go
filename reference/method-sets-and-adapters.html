@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference — Method Sets &amp; Adapters</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main class="sheet">
+
+<p class="eyebrow">Reference · Go · Types &amp; Interfaces</p>
+<h1>Method Sets &amp; Adapters</h1>
+<p class="standfirst">The rules that decide whether a type implements an interface, and the
+three moves for making it implement one you do not control.</p>
+
+<h2><span class="num">01</span>The rules</h2>
+
+<table>
+  <tr><th>Rule</th><th>Consequence</th></tr>
+  <tr>
+    <td>Implementation is structural and <strong>exact</strong>.</td>
+    <td>Same method name, same parameters, same results. No covariance:
+    <code>[]TeamName</code> ≠ <code>[]string</code>.</td>
+  </tr>
+  <tr>
+    <td>Method set of <code>T</code> holds value-receiver methods; method set of
+    <code>*T</code> holds both.</td>
+    <td>If any required method has a pointer receiver, pass <code>&amp;v</code>, not
+    <code>v</code>.</td>
+  </tr>
+  <tr>
+    <td>Methods may be declared on <strong>any defined type in the same package</strong>.</td>
+    <td>Including func types, slice types, and string types. This is what makes adapters
+    possible.</td>
+  </tr>
+  <tr>
+    <td>A defined type declared from another type starts with an <strong>empty</strong>
+    method set.</td>
+    <td><code>type B A</code> copies structure, not behaviour. Use embedding to keep methods.</td>
+  </tr>
+  <tr>
+    <td>Embedding <strong>promotes</strong> fields and methods; a method declared directly on
+    the outer type <strong>shadows</strong> the promoted one.</td>
+    <td>Reach the original explicitly: <code>outer.Inner.Method()</code>.</td>
+  </tr>
+  <tr>
+    <td>Slice conversion needs <strong>identical</strong> element types.</td>
+    <td><code>TeamName → string</code> converts. <code>[]TeamName → []string</code> does not.
+    Copy in a loop.</td>
+  </tr>
+</table>
+
+<h2><span class="num">02</span>Adapter recipes</h2>
+
+<h3>A. Wrapper by embedding — keeps the original's behaviour</h3>
+<pre><code>type Wrapper struct {
+	Original
+}
+
+func (w Wrapper) Want() []string {
+	src := w.Original.Have() // shadowed? qualify it
+	out := make([]string, 0, len(src))
+	for _, v := range src {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+use(Wrapper{original})</code></pre>
+
+<h3>B. Func adapter — one-method interfaces</h3>
+<pre><code>type WantFunc func() []string
+
+func (f WantFunc) Want() []string { return f() }
+
+use(WantFunc(obj.SomeMethod))   // method value: receiver pre-bound
+use(WantFunc(func() []string { … })) // or a literal</code></pre>
+<p class="caption">The standard-library instance of this is <code>http.HandlerFunc</code>.</p>
+
+<h3>C. Defined type over a non-struct — when you own only the data</h3>
+<pre><code>type Names []TeamName
+
+func (n Names) Want() []string { … }</code></pre>
+
+<h2><span class="num">03</span>Decoding the error</h2>
+
+<pre><code>cannot use league (variable of struct type League) as Ranker value
+in argument to RankPrinter: League does not implement Ranker
+(wrong type for method Ranking)
+	have Ranking() []TeamName
+	want Ranking() []string</code></pre>
+
+<p><code>wrong type for method</code> means the name matched and the signature did not — you
+need an adapter, or a signature change. Contrast with <code>missing method</code>, which means
+the method is absent entirely, or is present only on the pointer's method set and you passed a
+value.</p>
+
+<h2><span class="num">04</span>Vocabulary</h2>
+
+<table>
+  <tr><th>Term</th><th>Meaning</th></tr>
+  <tr><td>Method set</td><td>The methods callable on a type; what interface satisfaction is
+  checked against.</td></tr>
+  <tr><td>Defined type</td><td>A type created by a <code>type X Y</code> declaration. Distinct
+  from <code>Y</code>, with its own (initially empty) method set.</td></tr>
+  <tr><td>Underlying type</td><td>The structural type beneath a defined type; governs
+  convertibility and literal assignment.</td></tr>
+  <tr><td>Embedding</td><td>A field declared with no name, whose fields and methods are
+  promoted to the outer type.</td></tr>
+  <tr><td>Promotion</td><td>An embedded type's method appearing in the outer type's method
+  set.</td></tr>
+  <tr><td>Shadowing</td><td>An outer method at a shallower depth taking precedence over a
+  promoted one of the same name.</td></tr>
+  <tr><td>Method value</td><td><code>v.M</code> without call parentheses: a function value with
+  the receiver already bound.</td></tr>
+  <tr><td>Method expression</td><td><code>T.M</code>: a function taking the receiver as its
+  first explicit argument.</td></tr>
+  <tr><td>Adapter</td><td>A type that wraps another and presents the method set some interface
+  requires.</td></tr>
+</table>
+
+<div class="footer">
+  <p><strong>Sources:</strong>
+  <a href="https://go.dev/ref/spec#Method_sets">Method sets</a> ·
+  <a href="https://go.dev/ref/spec#Conversions">Conversions</a> ·
+  <a href="https://go.dev/ref/spec#Struct_types">Struct types</a> ·
+  <a href="https://go.dev/ref/spec#Method_values">Method values</a> ·
+  <a href="https://go.dev/doc/effective_go#embedding">Effective Go: Embedding</a></p>
+  <p>Taught in <a href="../lessons/0001-adapters-and-method-sets.html">Lesson 01 — Adapters and
+  Method Sets</a>.</p>
+</div>
+
+</main>
+</body>
+</html>

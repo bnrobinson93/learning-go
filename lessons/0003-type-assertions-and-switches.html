@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 3 — Type Assertions and Switches</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<link rel="stylesheet" href="../assets/quiz.css">
+</head>
+<body>
+<main class="sheet">
+
+<p class="eyebrow">Lesson 03 · Chapter 7 · Types, Methods, Interfaces</p>
+<h1>Type Assertions and Switches</h1>
+<p class="standfirst">You asked whether a Go conversion is "basically a cast." Here is the
+other half of that answer — the runtime-checked operation Go deliberately gave separate
+syntax. You have been calling a function that uses it all along.</p>
+
+<h2><span class="num">01</span>The distinction, finally complete</h2>
+
+<table>
+  <tr><th></th><th>Conversion</th><th>Type assertion</th></tr>
+  <tr><td>Syntax</td><td><code>T(x)</code></td><td><code>x.(T)</code></td></tr>
+  <tr><td>Checked</td><td>Compile time</td><td><strong>Run time</strong></td></tr>
+  <tr><td>Operand</td><td>Any compatible type</td><td><strong>An interface value only</strong></td></tr>
+  <tr><td>Can fail at runtime</td><td>Never</td><td>Panics, unless comma-ok</td></tr>
+  <tr><td>Asks</td><td>"Reshape this into a T."</td><td>"What is actually in this box?"</td></tr>
+</table>
+
+<p>The operand restriction is worth internalising. An assertion unwraps an interface value to
+find the concrete type stored inside it — so there must <em>be</em> an interface value:</p>
+
+<pre class="bad"><code>func bad(l *League) { _ = l.(Ranker) }</code></pre>
+<p class="caption">invalid operation: l (variable of type *League) is not an interface</p>
+
+<h2><span class="num">02</span>Comma-ok, and the naked form</h2>
+
+<pre class="good"><code>if l, ok := r.(*League); ok {
+	// l is a *League here
+}</code></pre>
+
+<pre class="bad"><code>l := r.(*League) // panics if r holds anything else</code></pre>
+<p class="caption">panic: interface conversion: main.Ranker is main.RankerAdapter, not *main.League</p>
+
+<div class="rule-box">
+  <span class="label">Default posture</span>
+  <p>Use comma-ok. Reach for the naked form only where a failure is a genuine programmer
+  error you want to crash on — and note that the panic message is excellent, so it is not an
+  unreasonable choice in a program's own internals.</p>
+</div>
+
+<h2><span class="num">03</span>The pattern that matters: optional behaviour</h2>
+
+<p>Here is the payoff, and it has been in your code since exercise 3. Your
+<code>RankPrinter</code> calls <code>io.WriteString</code>. That function is, essentially,
+this:</p>
+
+<pre><code>func WriteString(w Writer, s string) (n int, err error) {
+	if sw, ok := w.(StringWriter); ok {
+		return sw.WriteString(s) // fast path: no allocation
+	}
+	return w.Write([]byte(s))    // fallback: convert to []byte
+}</code></pre>
+<p class="caption">Paraphrase of <a href="https://pkg.go.dev/io#WriteString">io.WriteString</a>.</p>
+
+<p>It accepts the <em>narrow</em> interface, then asks at runtime whether the concrete value
+happens to support something better. Callers that can, get the fast path; callers that cannot,
+still work. Checked:</p>
+
+<pre><code>os.Stdout        is io.StringWriter: true
+*bytes.Buffer    is io.StringWriter: true
+*strings.Builder is io.StringWriter: true</code></pre>
+
+<p>So your <code>RankPrinter(…, os.Stdout)</code> has been taking the allocation-free path
+this whole time, because of an assertion you never wrote.</p>
+
+<h3>The same probe, in your own code</h3>
+
+<p>You can ask whether a <code>Ranker</code> can do more than rank — using an
+<strong>anonymous interface</strong> written inline, which is the idiomatic way to probe for
+one method:</p>
+
+<pre class="good"><code>func RankPrinter(r Ranker, w io.Writer) error {
+	counter, hasCounts := r.(interface{ WinCount(string) int })
+
+	for _, rank := range r.Ranking() {
+		line := rank
+		if hasCounts {
+			line = fmt.Sprintf("%s (%d)", rank, counter.WinCount(rank))
+		}
+		if _, err := io.WriteString(w, line+"\n"); err != nil {
+			return fmt.Errorf("unable to write %v: %w", rank, err)
+		}
+	}
+	return nil
+}</code></pre>
+
+<p>Give <code>*League</code> a <code>WinCount</code> method and it prints counts. Pass your
+<code>RankerAdapter</code> — which has no such method — and it silently prints plain names.
+Neither <code>Ranker</code> nor <code>League</code> had to change.</p>
+
+<h2><span class="num">04</span>Type switches</h2>
+
+<p>When you need to branch across several concrete types, the switch form binds the variable
+per-case:</p>
+
+<pre class="good"><code>switch t := v.(type) {
+case *League:
+	fmt.Println("a league with", len(t.Wins), "teams") // t is *League
+case RankerAdapter:
+	fmt.Println("a func adapter")                      // t is RankerAdapter
+default:
+	fmt.Println("something else")                      // t is Ranker
+}</code></pre>
+
+<p>In <code>default</code> — and in any case listing two or more types — <code>t</code> keeps
+the original interface type, because there is no single concrete type to give it.</p>
+
+<div class="rule-box">
+  <span class="label">Smell</span>
+  <p>A type switch over concrete types that <em>you</em> own is usually an interface you failed
+  to define. Prefer adding a method. Type switches earn their place for handling values you do
+  not control — <code>any</code> from decoded JSON, sentinel error types, or optional-behaviour
+  probes like the one above.</p>
+</div>
+
+<h2><span class="num">05</span>The one you will actually use most</h2>
+
+<p>Error handling is assertion-shaped, but do not write the assertion by hand — wrapped errors
+hide inside other errors, and <code>errors.As</code> walks the chain for you:</p>
+
+<pre class="bad"><code>if pe, ok := err.(*fs.PathError); ok { … } // misses wrapped errors</code></pre>
+<pre class="good"><code>var pe *fs.PathError
+if errors.As(err, &amp;pe) { … }              // unwraps as it searches</code></pre>
+
+<p>Note that your <code>RankPrinter</code> currently builds its error with
+<code>fmt.Errorf("unable to write %v", rank)</code> — which discards the underlying
+<code>err</code> entirely. Use <code>%w</code> to wrap it, so callers can
+<code>errors.As</code> their way back to the real cause.
+(<a href="https://pkg.go.dev/errors#As">errors.As</a>)</p>
+
+<h2><span class="num">06</span>Check yourself</h2>
+
+<div class="quiz" data-answer="2">
+  <p class="quiz-q">What does <code>x.(T)</code> require of <code>x</code>?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">That x is a pointer to a struct type</button>
+    <button class="quiz-opt">That x is convertible to the type T</button>
+    <button class="quiz-opt">That x is a value of an interface type</button>
+    <button class="quiz-opt">That x is addressable at the call site</button>
+  </div>
+  <p class="quiz-feedback" hidden>Assertions unwrap interface values. On a concrete type the
+  compiler rejects it: <code>invalid operation: … is not an interface</code>.</p>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="quiz-q">Why does <code>io.WriteString</code> assert for <code>io.StringWriter</code>
+  rather than just requiring it?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">So that the conversion happens at compile time</button>
+    <button class="quiz-opt">So that writers lacking it still work fine</button>
+    <button class="quiz-opt">So that the writer can be safely copied twice</button>
+    <button class="quiz-opt">So that the caller can recover from a panic</button>
+  </div>
+  <p class="quiz-feedback" hidden>Accept the narrow interface, then probe for the better one.
+  Callers that support it get the allocation-free path; the rest fall back to
+  <code>Write([]byte(s))</code>.</p>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="quiz-q">In a type switch, what type does the bound variable have in
+  <code>default</code>?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">The interface type it already had before</button>
+    <button class="quiz-opt">The empty interface type, spelled any</button>
+    <button class="quiz-opt">The first concrete type listed in a case</button>
+    <button class="quiz-opt">It is not bound at all inside default</button>
+  </div>
+  <p class="quiz-feedback" hidden>Only a single-type case can narrow it. In
+  <code>default</code>, or in a case listing several types, the variable keeps the original
+  interface type.</p>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="quiz-q">Why prefer <code>errors.As</code> over asserting on the error directly?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">It is faster, since it avoids a runtime check</button>
+    <button class="quiz-opt">It works on concrete types, not just interfaces</button>
+    <button class="quiz-opt">It returns the error instead of panicking on it</button>
+    <button class="quiz-opt">It unwraps nested errors while it searches</button>
+  </div>
+  <p class="quiz-feedback" hidden>A direct assertion only inspects the outermost error, so it
+  misses anything wrapped with <code>%w</code>. <code>errors.As</code> walks the whole chain.</p>
+</div>
+
+<h2><span class="num">07</span>Do this next</h2>
+
+<p>Add <code>func (l *League) WinCount(name string) int</code>, then add the optional-behaviour
+probe to <code>RankPrinter</code>. Run it twice — once with <code>RankerStruct{&amp;league}</code>
+and once with your <code>RankerAdapter</code> — and confirm one prints counts and the other does
+not, with no change to the <code>Ranker</code> interface.</p>
+
+<p>Then fix the error line to use <code>%w</code>, and write a tiny <code>io.Writer</code> whose
+<code>Write</code> always fails, so you can actually see that path execute.</p>
+
+<div class="footer">
+  <p><strong>Read this next — the primary source:</strong>
+  <a href="https://go.dev/ref/spec#Type_assertions">Spec, “Type assertions”</a> and
+  <a href="https://go.dev/ref/spec#Type_switches">“Type switches”</a> — both short. Then the
+  <a href="https://go.dev/blog/go1.13-errors">Go blog on error wrapping</a> for
+  <code>%w</code> / <code>errors.As</code>, which is the friendliest thing written on it.</p>
+
+  <p><strong>Related material in this workspace:</strong></p>
+  <ul>
+    <li><a href="0001-adapters-and-method-sets.html">Lesson 01 — Adapters and Method Sets</a></li>
+    <li><a href="0002-pointer-and-value-receivers.html">Lesson 02 — Pointer and Value Receivers</a></li>
+    <li><a href="../reference/assertions-and-switches.html">Reference: Assertions, Switches &amp;
+    Optional Behaviour</a></li>
+    <li><a href="../learning-records/0003-assertions-and-optional-behaviour.md">Learning record 0003</a></li>
+  </ul>
+
+  <p class="ask"><strong>Ask me</strong> if the anonymous-interface probe looks like a party
+  trick rather than a design tool — it is the hinge that "accept interfaces, return structs"
+  swings on, and that is the next lesson.</p>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

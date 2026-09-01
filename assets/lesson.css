@@ -1,0 +1,192 @@
+/* Shared stylesheet for all lessons and reference sheets in this workspace. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --ink-faint: #8a877f;
+  --paper: #fffef9;
+  --rule: #e2ded2;
+  --accent: #7b3f00;
+  --accent-soft: #f3ead9;
+  --good: #2f6b3f;
+  --bad: #9b2226;
+  --code-bg: #f6f3ea;
+  --measure: 34rem;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 17px; }
+
+body {
+  margin: 0;
+  padding: 3.5rem 1.5rem 6rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  line-height: 1.6;
+}
+
+.sheet { max-width: var(--measure); margin: 0 auto; }
+
+/* ---- masthead ---- */
+
+.eyebrow {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 0.6rem;
+}
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+  letter-spacing: -0.01em;
+}
+
+.standfirst {
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+  font-style: italic;
+  margin: 0 0 2.5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 3rem 0 0.8rem;
+  letter-spacing: -0.005em;
+}
+
+h2 .num {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  color: var(--accent);
+  margin-right: 0.5rem;
+  vertical-align: 0.15em;
+}
+
+h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 2rem 0 0.5rem;
+}
+
+p { margin: 0 0 1rem; }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+strong { font-weight: 600; }
+
+/* ---- code ---- */
+
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: var(--code-bg);
+  padding: 0.1em 0.32em;
+  border-radius: 3px;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 3px;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 0 0 1.2rem;
+}
+
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre.bad { border-left-color: var(--bad); }
+pre.good { border-left-color: var(--good); }
+
+.caption {
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+  margin: -0.9rem 0 1.6rem;
+  font-style: italic;
+}
+
+/* ---- callouts ---- */
+
+.rule-box {
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 1rem 1.2rem;
+  margin: 1.5rem 0;
+  font-size: 0.95rem;
+}
+
+.rule-box p:last-child { margin-bottom: 0; }
+
+.rule-box .label {
+  display: block;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.4rem;
+}
+
+/* ---- tables ---- */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.86rem;
+  margin: 0 0 1.4rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.6rem 0.5rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+th {
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+  border-bottom-color: var(--ink-faint);
+}
+
+/* ---- footer ---- */
+
+.footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.footer ul { padding-left: 1.1rem; margin: 0.5rem 0 1.2rem; }
+.footer li { margin-bottom: 0.35rem; }
+
+.ask {
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 0.8rem 1rem;
+  font-size: 0.88rem;
+}
+
+@media print {
+  body { padding: 0; font-size: 11pt; }
+  pre { break-inside: avoid; }
+  .quiz { break-inside: avoid; }
+}

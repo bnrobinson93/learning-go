@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 2 — Pointer and Value Receivers</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<link rel="stylesheet" href="../assets/quiz.css">
+</head>
+<body>
+<main class="sheet">
+
+<p class="eyebrow">Lesson 02 · Chapter 7 · Types, Methods, Interfaces</p>
+<h1>Pointer and Value Receivers</h1>
+<p class="standfirst">Your <code>League</code> already mixes both:
+<code>MatchResult</code> takes <code>*League</code>, <code>Ranking</code> takes
+<code>League</code>. That mix is fine — but it decides which values can satisfy an interface,
+and it hides a bug that half-works.</p>
+
+<h2><span class="num">01</span>Two rules, doing different jobs</h2>
+
+<p>People conflate these constantly. They are separate, and only the second one is about
+interfaces.</p>
+
+<h3>Rule A — calling a method (a convenience)</h3>
+
+<p>If a variable is <strong>addressable</strong>, Go inserts <code>&amp;</code> or
+<code>*</code> for you. So this compiles even though the receiver is <code>*League</code>:</p>
+
+<pre class="good"><code>league := League{…}
+league.MatchResult("Cowboys", 1, "Broncos", 2)
+// rewritten by the compiler as (&amp;league).MatchResult(…)</code></pre>
+
+<p>Addressable means: a variable, a pointer dereference, a slice element, or a field of an
+addressable struct. <strong>Not</strong> addressable: a map element, a function's return
+value, or a composite literal. Those fail:</p>
+
+<pre class="bad"><code>Team{}.AddPlayer("x")     // ✗
+teamsByName["a"].AddPlayer("x") // ✗</code></pre>
+<p class="caption">cannot call pointer method AddPlayer on Team</p>
+
+<h3>Rule B — method sets (the real rule)</h3>
+
+<p>The convenience above does <em>not</em> apply to interface satisfaction, because an
+interface value has no address to take.
+(<a href="https://go.dev/ref/spec#Method_sets">Spec: Method sets</a>)</p>
+
+<table>
+  <tr><th>Type</th><th>Method set contains</th></tr>
+  <tr><td><code>T</code></td><td>methods with receiver <code>T</code> only</td></tr>
+  <tr><td><code>*T</code></td><td>methods with receiver <code>T</code> <em>and</em> <code>*T</code></td></tr>
+</table>
+
+<div class="rule-box">
+  <span class="label">The consequence</span>
+  <p>If <strong>any</strong> method an interface requires has a pointer receiver, only
+  <code>*T</code> satisfies that interface. A <code>T</code> value never will — no matter that
+  you can call the method on a <code>T</code> variable directly.</p>
+</div>
+
+<h2><span class="num">02</span>Where this bit your adapter</h2>
+
+<p><code>RankerStruct</code> embeds <code>League</code> <strong>by value</strong>. Promotion
+carries the method sets along with the same asymmetry, so <code>MatchResult</code> lands on
+<code>*RankerStruct</code> and not on <code>RankerStruct</code>:</p>
+
+<pre class="bad"><code>var _ interface{ MatchResult(…) } = RankerStruct{} // ✗
+_ = RankerStruct{}.MatchResult                     // ✗</code></pre>
+<p class="caption">RankerStruct does not implement … (method MatchResult has pointer receiver)<br>
+cannot call pointer method MatchResult on RankerStruct</p>
+
+<p>Yet <code>rs.MatchResult(…)</code> on a variable compiles fine — Rule A rescued it. That
+gap between "I can call it" and "it implements the interface" is the single most common Go
+surprise.</p>
+
+<p>Embedding the pointer instead puts both receiver kinds into the value's method set, and
+stops the wrapper copying anything:</p>
+
+<pre class="good"><code>type RankerStruct struct {
+	*League // embedded — no field name, no colon
+}</code></pre>
+
+<h2><span class="num">03</span>The bug that half-works</h2>
+
+<p>Copying a struct is <strong>shallow</strong>. A copied <code>League</code> gets its own
+<code>Wins</code> field, but that field is a map header pointing at the <em>same</em> hash
+table. So mutations through the copy are visible; reassignments are not. Verified output:</p>
+
+<pre><code>rs := RankerStruct{league}          // League embedded by value
+
+rs.MatchResult("Cowboys", …)        // l.Wins[name]++
+league.Wins → map[Cowboys:1]        // ← the original DID change
+
+rs.Reset()                          // l.Wins = map[TeamName]int{}
+league.Wins    → map[Cowboys:1]     // ← unchanged
+rs.League.Wins → map[]              // ← only the copy was reset</code></pre>
+
+<div class="rule-box">
+  <span class="label">The rule worth memorising</span>
+  <p>Mutating <em>through</em> a reference field (map write, slice element write) crosses the
+  copy. <em>Reassigning</em> the field itself does not. This is why the failure mode is
+  "some updates land and some vanish" rather than an honest crash.</p>
+</div>
+
+<h2><span class="num">04</span>The same trap in a <code>for</code> loop</h2>
+
+<p>You have <code>Teams []Team</code>, so you will meet this one next. The loop variable is a
+copy of the element:</p>
+
+<pre class="bad"><code>for _, t := range l.Teams {
+	t.AddPlayer("Brad") // mutates the copy, then throws it away
+}
+// l.Teams[0].Players → []</code></pre>
+
+<pre class="good"><code>for i := range l.Teams {
+	l.Teams[i].AddPlayer("Brad") // slice element is addressable
+}
+// l.Teams[0].Players → [Brad]</code></pre>
+
+<h2><span class="num">05</span>So which receiver do I write?</h2>
+
+<table>
+  <tr><th>Situation</th><th>Receiver</th></tr>
+  <tr><td>The method mutates the receiver</td><td><code>*T</code> — required</td></tr>
+  <tr><td>The type has a mutex or other non-copyable field</td><td><code>*T</code> — required</td></tr>
+  <tr><td>Some methods on the type already use <code>*T</code></td><td><code>*T</code> — be consistent</td></tr>
+  <tr><td>Small, immutable value type (<code>time.Time</code>-ish)</td><td><code>T</code></td></tr>
+</table>
+
+<p>Consistency is the actual guidance: <a href="https://go.dev/wiki/CodeReviewComments#receiver-type">Go
+Code Review Comments</a> says don't mix receiver kinds on one type. Your <code>League</code>
+mixes them, which is exactly why the interface question got confusing. Making
+<code>Ranking</code> take <code>*League</code> too would be the idiomatic cleanup — note that
+it would then break <code>RankerStruct{league}</code> at compile time rather than silently.</p>
+
+<h2><span class="num">06</span>Check yourself</h2>
+
+<div class="quiz" data-answer="1">
+  <p class="quiz-q">A type <code>T</code> has one method, with receiver <code>*T</code>. Which
+  values satisfy an interface requiring it?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">Both a T value and a pointer to T</button>
+    <button class="quiz-opt">Only a pointer to T, never a T value</button>
+    <button class="quiz-opt">Only a T value that is addressable now</button>
+    <button class="quiz-opt">Both, if the T value is in a variable</button>
+  </div>
+  <p class="quiz-feedback" hidden>The method set of <code>T</code> holds only value-receiver
+  methods. Addressability lets you <em>call</em> the method on a variable, but it never
+  changes what <code>T</code> implements.</p>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="quiz-q">Why does <code>m["a"].AddPlayer("x")</code> fail when <code>AddPlayer</code>
+  has a pointer receiver?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">A map element has no address to take</button>
+    <button class="quiz-opt">A map element is a copy of the value</button>
+    <button class="quiz-opt">A map cannot store types with methods</button>
+    <button class="quiz-opt">A map element is read-only until reset</button>
+  </div>
+  <p class="quiz-feedback" hidden>Go can only auto-insert <code>&amp;</code> for addressable
+  operands. Map elements are not addressable — the table may move them — so the compiler has
+  nothing to take the address of.</p>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="quiz-q"><code>rs</code> holds a copy of <code>league</code>.
+  <code>rs.MatchResult(…)</code> runs <code>l.Wins[name]++</code>. What does
+  <code>league.Wins</code> show?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">Nothing changed, since rs holds a copy</button>
+    <button class="quiz-opt">Nothing changed, and rs panics on write</button>
+    <button class="quiz-opt">The change is there, since maps are shared</button>
+    <button class="quiz-opt">The change is there, since Go passes refs</button>
+  </div>
+  <p class="quiz-feedback" hidden>Copying the struct copies the map <em>header</em>, not the
+  table. Both structs reference one table, so writes through either are visible to both.
+  Reassigning <code>l.Wins</code> wholesale would not cross the copy.</p>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="quiz-q">Which of these operands is <strong>addressable</strong>?</p>
+  <div class="quiz-options">
+    <button class="quiz-opt">A composite literal, as in <code>Team{}</code></button>
+    <button class="quiz-opt">A map element, as in <code>wins["a"]</code></button>
+    <button class="quiz-opt">A function result, as in <code>build()</code></button>
+    <button class="quiz-opt">A slice element, as in <code>teams[0]</code></button>
+  </div>
+  <p class="quiz-feedback" hidden>Slice elements live in a backing array at a stable address,
+  so <code>teams[0].Method()</code> works with a pointer receiver. That is why the
+  index-based loop fixes the range-copy bug.</p>
+</div>
+
+<h2><span class="num">07</span>Do this next</h2>
+
+<p>In <code>ch7/main.go</code>, add a pointer-receiver method to <code>Team</code> —
+<code>AddPlayer</code> will do — then try to call it from a <code>for … range</code> over
+<code>l.Teams</code> and confirm the player vanishes. Fix it with the indexed loop. Feeling
+that failure once is worth more than the rule.</p>
+
+<p>Then switch <code>RankerStruct</code> to embed <code>*League</code> and check that
+<code>RankPrinter(RankerStruct{&amp;league}, os.Stdout)</code> still compiles and prints.</p>
+
+<div class="footer">
+  <p><strong>Read this next — the primary source:</strong>
+  <a href="https://go.dev/ref/spec#Method_sets">Spec, “Method sets”</a> (reread it now that it
+  means something), then
+  <a href="https://go.dev/ref/spec#Address_operators">“Address operators”</a> for the
+  addressability list. For the style call:
+  <a href="https://go.dev/wiki/CodeReviewComments#receiver-type">Code Review Comments, “Receiver
+  Type”</a>.</p>
+
+  <p><strong>Related material in this workspace:</strong></p>
+  <ul>
+    <li><a href="0001-adapters-and-method-sets.html">Lesson 01 — Adapters and Method Sets</a></li>
+    <li><a href="../reference/method-sets-and-adapters.html">Reference: Method Sets &amp; Adapters</a></li>
+    <li><a href="../reference/receivers-and-copies.html">Reference: Receivers, Copies &amp;
+    Addressability</a></li>
+    <li><a href="../learning-records/0002-shallow-copies-and-method-sets.md">Learning record 0002</a></li>
+  </ul>
+
+  <p class="ask"><strong>Stuck?</strong> Ask me. If "addressable" still feels like a magic word
+  rather than a property you can check by eye, say so — there is a short mental test for it and
+  it is worth having.</p>
+</div>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference — Assertions, Switches &amp; Optional Behaviour</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main class="sheet">
+
+<p class="eyebrow">Reference · Go · Types &amp; Interfaces</p>
+<h1>Assertions, Switches &amp;<br>Optional Behaviour</h1>
+<p class="standfirst">Getting a concrete type back out of an interface value, and using that to
+offer behaviour without demanding it.</p>
+
+<h2><span class="num">01</span>Three operations, often confused</h2>
+
+<table>
+  <tr><th>Operation</th><th>Syntax</th><th>Checked</th><th>Operand</th></tr>
+  <tr><td>Conversion</td><td><code>T(x)</code></td><td>compile time</td><td>any compatible type</td></tr>
+  <tr><td>Type assertion</td><td><code>x.(T)</code></td><td>run time</td><td>interface value only</td></tr>
+  <tr><td>Type switch</td><td><code>switch v := x.(type)</code></td><td>run time</td><td>interface value only</td></tr>
+</table>
+
+<p>"Cast" in Java or C# covers the first two at once. Go splits them because only one of them
+can fail.</p>
+
+<h2><span class="num">02</span>Forms</h2>
+
+<pre><code>v, ok := x.(T)   // comma-ok: never panics, ok reports success
+v := x.(T)       // naked: panics on mismatch
+
+switch v := x.(type) {
+case *League:          // v is *League
+case RankerAdapter:    // v is RankerAdapter
+case nil:              // x itself held nil
+case A, B:             // v keeps x's interface type
+default:               // v keeps x's interface type
+}</code></pre>
+
+<h2><span class="num">03</span>Optional-behaviour probe</h2>
+
+<pre><code>// Accept the narrow interface; ask for more at runtime.
+if sw, ok := w.(io.StringWriter); ok {
+	return sw.WriteString(s)  // better path
+}
+return w.Write([]byte(s))     // always-works path
+
+// Probing for a single method reads well inline:
+if c, ok := r.(interface{ WinCount(string) int }); ok { … }</code></pre>
+
+<p>Standard-library instances worth knowing:</p>
+
+<table>
+  <tr><th>Function</th><th>Probes for</th><th>Gains</th></tr>
+  <tr><td><a href="https://pkg.go.dev/io#WriteString"><code>io.WriteString</code></a></td><td><code>io.StringWriter</code></td><td>no <code>[]byte</code> allocation</td></tr>
+  <tr><td><a href="https://pkg.go.dev/io#Copy"><code>io.Copy</code></a></td><td><code>WriterTo</code>, <code>ReaderFrom</code></td><td>skips the intermediate buffer</td></tr>
+  <tr><td><a href="https://pkg.go.dev/net/http#ResponseWriter"><code>http.ResponseWriter</code></a> users</td><td><code>http.Flusher</code>, <code>http.Hijacker</code></td><td>streaming, connection takeover</td></tr>
+</table>
+
+<h2><span class="num">04</span>Errors</h2>
+
+<pre><code>fmt.Errorf("writing %v: %w", rank, err) // %w wraps; %v discards
+
+var pe *fs.PathError
+if errors.As(err, &amp;pe) { … }   // finds it at any depth
+if errors.Is(err, fs.ErrNotExist) { … } // compares to a sentinel</code></pre>
+
+<p>Hand-rolled <code>err.(*T)</code> inspects only the outermost error and misses anything
+wrapped. Use <code>errors.As</code>.</p>
+
+<h2><span class="num">05</span>When to use which</h2>
+
+<table>
+  <tr><th>Situation</th><th>Reach for</th></tr>
+  <tr><td>Offering a faster path if available</td><td>comma-ok assertion on an optional interface</td></tr>
+  <tr><td>Handling <code>any</code> from JSON, config, reflection</td><td>type switch</td></tr>
+  <tr><td>Identifying an error's cause</td><td><code>errors.As</code> / <code>errors.Is</code></td></tr>
+  <tr><td>Branching over concrete types you own</td><td>usually wrong — add a method instead</td></tr>
+  <tr><td>A mismatch means the program is broken</td><td>naked assertion; the panic text is precise</td></tr>
+</table>
+
+<h2><span class="num">06</span>Messages, decoded</h2>
+
+<table>
+  <tr><th>Message</th><th>Meaning</th></tr>
+  <tr><td><code>invalid operation: x … is not an interface</code></td><td>You asserted on a concrete type. Nothing to unwrap.</td></tr>
+  <tr><td><code>interface conversion: I is A, not B</code></td><td>Naked assertion, wrong concrete type. Use comma-ok.</td></tr>
+  <tr><td><code>impossible type assertion</code></td><td>The target cannot satisfy the interface — usually a pointer-receiver method and a value type.</td></tr>
+</table>
+
+<div class="footer">
+  <p><strong>Sources:</strong>
+  <a href="https://go.dev/ref/spec#Type_assertions">Type assertions</a> ·
+  <a href="https://go.dev/ref/spec#Type_switches">Type switches</a> ·
+  <a href="https://pkg.go.dev/errors#As">errors.As</a> ·
+  <a href="https://go.dev/blog/go1.13-errors">Go blog: error wrapping</a></p>
+  <p>Taught in <a href="../lessons/0003-type-assertions-and-switches.html">Lesson 03</a>. See also
+  <a href="method-sets-and-adapters.html">Method Sets &amp; Adapters</a> and
+  <a href="receivers-and-copies.html">Receivers, Copies &amp; Addressability</a>.</p>
+</div>
+
+</main>
+</body>
+</html>

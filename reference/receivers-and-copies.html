@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference — Receivers, Copies &amp; Addressability</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main class="sheet">
+
+<p class="eyebrow">Reference · Go · Types &amp; Interfaces</p>
+<h1>Receivers, Copies &amp;<br>Addressability</h1>
+<p class="standfirst">Which values can call a method, which can satisfy an interface, and what
+survives a struct copy.</p>
+
+<h2><span class="num">01</span>Method sets</h2>
+
+<table>
+  <tr><th>Type</th><th>Method set</th><th>Satisfies an interface needing…</th></tr>
+  <tr><td><code>T</code></td><td>receiver <code>T</code></td><td>value-receiver methods only</td></tr>
+  <tr><td><code>*T</code></td><td>receiver <code>T</code> and <code>*T</code></td><td>anything</td></tr>
+</table>
+
+<p>Embedding follows the same table: embed <code>T</code> and the outer value gets only
+<code>T</code>'s value-receiver methods; embed <code>*T</code> and it gets all of them.</p>
+
+<h2><span class="num">02</span>Addressability</h2>
+
+<p>If an operand is addressable, Go auto-inserts <code>&amp;</code> / <code>*</code> at a
+method call. This is a call-site convenience only — it never affects interface satisfaction.</p>
+
+<table>
+  <tr><th>Addressable</th><th>Not addressable</th></tr>
+  <tr>
+    <td>
+      variables<br>
+      pointer dereferences <code>*p</code><br>
+      slice elements <code>s[i]</code><br>
+      array elements, if the array is addressable<br>
+      fields of addressable structs
+    </td>
+    <td>
+      composite literals <code>T{}</code><br>
+      map elements <code>m[k]</code><br>
+      function results <code>f()</code><br>
+      constants and most literals<br>
+      string bytes <code>s[i]</code>
+    </td>
+  </tr>
+</table>
+
+<p class="caption">Mental test: could you write <code>&amp;x</code> and get a pointer that
+stays valid? If not, it is not addressable.</p>
+
+<h2><span class="num">03</span>What a struct copy copies</h2>
+
+<table>
+  <tr><th>Field kind</th><th>After copying the struct</th></tr>
+  <tr><td>Scalar (<code>int</code>, <code>string</code>, …)</td><td>Independent. Changes never cross.</td></tr>
+  <tr><td>Map</td><td>Header copied, <strong>table shared</strong>. <code>m[k]=v</code> crosses; <code>m = …</code> does not.</td></tr>
+  <tr><td>Slice</td><td>Header copied, <strong>backing array shared</strong>. <code>s[i]=v</code> crosses; <code>s = append(…)</code> may not.</td></tr>
+  <tr><td>Pointer</td><td>Pointer copied, <strong>pointee shared</strong>.</td></tr>
+  <tr><td>Channel, func</td><td>Reference copied; same underlying object.</td></tr>
+  <tr><td>Nested struct / array</td><td>Deep-copied, field by field, recursively.</td></tr>
+</table>
+
+<div class="rule-box">
+  <span class="label">One-line version</span>
+  <p>Mutating <em>through</em> a reference field crosses the copy. <em>Reassigning</em> the
+  field does not.</p>
+</div>
+
+<h2><span class="num">04</span>Common failures, decoded</h2>
+
+<table>
+  <tr><th>Message</th><th>Cause</th></tr>
+  <tr>
+    <td><code>cannot call pointer method M on T</code></td>
+    <td>The operand is not addressable. Assign it to a variable first, or take a pointer.</td>
+  </tr>
+  <tr>
+    <td><code>T does not implement I (method M has pointer receiver)</code></td>
+    <td>Pass <code>&amp;v</code> instead of <code>v</code>, or embed <code>*T</code> instead of
+    <code>T</code>.</td>
+  </tr>
+  <tr>
+    <td>No error, but the mutation vanishes</td>
+    <td>A copy was mutated: a <code>range</code> loop variable, a value receiver, or a
+    value-embedded struct.</td>
+  </tr>
+</table>
+
+<h2><span class="num">05</span>Choosing a receiver</h2>
+
+<table>
+  <tr><th>If…</th><th>Use</th></tr>
+  <tr><td>the method mutates the receiver</td><td><code>*T</code></td></tr>
+  <tr><td>the type contains a mutex or must not be copied</td><td><code>*T</code></td></tr>
+  <tr><td>the type is large and copying is measurable</td><td><code>*T</code></td></tr>
+  <tr><td>any other method on the type uses <code>*T</code></td><td><code>*T</code>, for consistency</td></tr>
+  <tr><td>small immutable value, and none of the above</td><td><code>T</code></td></tr>
+</table>
+
+<p>Do not mix receiver kinds on one type without a reason —
+<a href="https://go.dev/wiki/CodeReviewComments#receiver-type">Code Review Comments: Receiver
+Type</a>.</p>
+
+<div class="footer">
+  <p><strong>Sources:</strong>
+  <a href="https://go.dev/ref/spec#Method_sets">Method sets</a> ·
+  <a href="https://go.dev/ref/spec#Address_operators">Address operators</a> ·
+  <a href="https://go.dev/ref/spec#Calls">Calls</a> ·
+  <a href="https://go.dev/wiki/CodeReviewComments#receiver-type">Receiver Type</a></p>
+  <p>Taught in <a href="../lessons/0002-pointer-and-value-receivers.html">Lesson 02 — Pointer
+  and Value Receivers</a>. See also
+  <a href="method-sets-and-adapters.html">Method Sets &amp; Adapters</a>.</p>
+</div>
+
+</main>
+</body>
+</html>
