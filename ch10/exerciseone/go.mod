@@ -1,4 +1,4 @@
-module github.com/bnrobinson93/learning-go/ch10/exerciseone
+module github.com/bnrobinson93/learning-go/ch10/exerciseone/v2
 
 go 1.27.1
 
