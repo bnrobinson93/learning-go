@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/bnrobinson93/learning-go/ch10/exerciseone"
+	"github.com/bnrobinson93/learning-go/ch10/exerciseone/v2"
 )
 
 func main() {
